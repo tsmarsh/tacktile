@@ -29,7 +29,7 @@ function parsePattern(pattern: string): { regex: RegExp; paramNames: string[] } 
 
   // Escape special regex characters except for :param patterns
   const regexStr = pattern
-    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/[.*+?^${}()|[\]\\]/g, (char) => '\\' + char)
     .replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
       paramNames.push(name);
       return '([^/]+)';

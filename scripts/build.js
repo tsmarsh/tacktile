@@ -17,7 +17,9 @@ async function bundle() {
 
   const js = result.outputFiles[0].text;
   const html = fs.readFileSync("src/index.html", "utf-8");
-  const output = html.replace("<!-- SCRIPT -->", `<script>${js}</script>`);
+  // Escape $ in JS to prevent replace() from interpreting $& etc as patterns
+  const safeJs = js.replace(/\$/g, '$$$$');
+  const output = html.replace("<!-- SCRIPT -->", `<script>${safeJs}</script>`);
 
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(path.join(outDir, "index.html"), output);

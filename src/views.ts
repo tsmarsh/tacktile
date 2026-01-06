@@ -1,7 +1,8 @@
-import type { Board, Bookmark } from './types';
+import type { Board, Bookmark, BookmarkMetadata } from './types';
 import * as db from './db';
 import { navigate } from './router';
 import { exportBoard, exportToFile, importFromFile } from './share';
+import { queueMetadataFetch } from './metadata';
 
 /**
  * Get the app container element.
@@ -161,31 +162,69 @@ export async function renderBoardDetail(boardId: string): Promise<void> {
   }
 
   for (const bookmark of bookmarks) {
-    const tile = createBookmarkTile(bookmark, boardId);
+    const metadata = await db.getMetadata(bookmark.id);
+    const tile = createBookmarkTile(bookmark, boardId, metadata);
     container.appendChild(tile);
+
+    // If no metadata yet, queue a fetch
+    if (!metadata) {
+      queueMetadataFetch(bookmark.id, bookmark.url);
+    }
   }
 }
 
-function createBookmarkTile(bookmark: Bookmark, boardId: string): HTMLElement {
+function createBookmarkTile(bookmark: Bookmark, boardId: string, metadata?: BookmarkMetadata): HTMLElement {
   const tile = document.createElement('div');
   tile.style.cssText = 'border: 1px solid #ddd; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;';
 
-  // Placeholder for thumbnail - will be enhanced later with metadata fetching
+  // Preview area - shows OG image if available, otherwise hostname
   const preview = document.createElement('div');
-  preview.style.cssText = 'height: 120px; background: #f5f5f5; display: flex; align-items: center; justify-content: center; color: #999;';
-  preview.textContent = new URL(bookmark.url).hostname;
+  preview.style.cssText = 'height: 120px; background: #f5f5f5; display: flex; align-items: center; justify-content: center; color: #999; overflow: hidden;';
+
+  if (metadata?.ogImageUrl) {
+    const img = document.createElement('img');
+    img.src = metadata.ogImageUrl;
+    img.alt = metadata.title || 'Preview';
+    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+    img.onerror = () => {
+      preview.textContent = new URL(bookmark.url).hostname;
+    };
+    preview.appendChild(img);
+  } else {
+    preview.textContent = new URL(bookmark.url).hostname;
+  }
   tile.appendChild(preview);
 
   const content = document.createElement('div');
   content.style.cssText = 'padding: 0.75rem;';
 
+  // Title or URL
+  const title = document.createElement('h4');
+  title.textContent = metadata?.title || new URL(bookmark.url).hostname;
+  title.style.cssText = 'font-size: 0.875rem; font-weight: 600; margin-bottom: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+  content.appendChild(title);
+
+  // Favicon and URL
+  const urlRow = document.createElement('div');
+  urlRow.style.cssText = 'display: flex; align-items: center; gap: 0.25rem;';
+
+  if (metadata?.faviconUrl) {
+    const favicon = document.createElement('img');
+    favicon.src = metadata.faviconUrl;
+    favicon.alt = '';
+    favicon.style.cssText = 'width: 16px; height: 16px;';
+    favicon.onerror = () => favicon.remove();
+    urlRow.appendChild(favicon);
+  }
+
   const link = document.createElement('a');
   link.href = bookmark.url;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
-  link.textContent = bookmark.url;
-  link.style.cssText = 'display: block; font-size: 0.875rem; color: #0066cc; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
-  content.appendChild(link);
+  link.textContent = new URL(bookmark.url).hostname;
+  link.style.cssText = 'font-size: 0.75rem; color: #666; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+  urlRow.appendChild(link);
+  content.appendChild(urlRow);
 
   if (bookmark.notes) {
     const notes = document.createElement('p');
@@ -216,12 +255,15 @@ function createBookmarkTile(bookmark: Bookmark, boardId: string): HTMLElement {
 }
 
 function showAddBookmarkDialog(boardId: string): void {
-  const url = prompt('Enter URL:');
-  if (url && url.trim()) {
+  const urlInput = prompt('Enter URL:');
+  if (urlInput && urlInput.trim()) {
     try {
-      new URL(url.trim()); // Validate URL
+      const url = urlInput.trim();
+      new URL(url); // Validate URL
       const notes = prompt('Notes (optional):') || undefined;
-      db.createBookmark(url.trim(), boardId, notes).then(() => {
+      db.createBookmark(url, boardId, notes).then((bookmark) => {
+        // Queue metadata fetch in background
+        queueMetadataFetch(bookmark.id, url);
         renderBoardDetail(boardId);
       });
     } catch {

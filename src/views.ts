@@ -197,11 +197,55 @@ export async function renderBoardDetail(boardId: string): Promise<void> {
   for (const bookmark of bookmarks) {
     const metadata = await db.getMetadata(bookmark.id);
     const tile = createBookmarkTile(bookmark, boardId, metadata);
+    tile.dataset.bookmarkId = bookmark.id;
     container.appendChild(tile);
 
-    // If no metadata yet, queue a fetch
+    // If no metadata yet, queue a fetch and update tile when ready
     if (!metadata) {
-      queueMetadataFetch(bookmark.id, bookmark.url);
+      queueMetadataFetch(bookmark.id, bookmark.url, (newMetadata) => {
+        if (newMetadata) {
+          updateTileWithMetadata(tile, bookmark, newMetadata);
+        }
+      });
+    }
+  }
+}
+
+/**
+ * Update an existing tile with new metadata (without full re-render).
+ */
+function updateTileWithMetadata(tile: HTMLElement, bookmark: Bookmark, metadata: BookmarkMetadata): void {
+  // Update preview image
+  const preview = tile.querySelector('div') as HTMLElement;
+  if (preview && metadata.ogImageUrl) {
+    preview.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = metadata.ogImageUrl;
+    img.alt = metadata.title || 'Preview';
+    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+    img.onerror = () => {
+      preview.textContent = new URL(bookmark.url).hostname;
+    };
+    preview.appendChild(img);
+  }
+
+  // Update title
+  const title = tile.querySelector('h4');
+  if (title && metadata.title) {
+    title.textContent = metadata.title;
+  }
+
+  // Update favicon
+  const urlRow = tile.querySelector('div:nth-child(2) > div');
+  if (urlRow && metadata.faviconUrl) {
+    const existingFavicon = urlRow.querySelector('img');
+    if (!existingFavicon) {
+      const favicon = document.createElement('img');
+      favicon.src = metadata.faviconUrl;
+      favicon.alt = '';
+      favicon.style.cssText = 'width: 16px; height: 16px;';
+      favicon.onerror = () => favicon.remove();
+      urlRow.insertBefore(favicon, urlRow.firstChild);
     }
   }
 }

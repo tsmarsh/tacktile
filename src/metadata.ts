@@ -7,8 +7,9 @@ const METADATA_FUNCTION_URL = 'https://us-central1-tacktyl.cloudfunctions.net/fe
 /**
  * Fetch metadata for a bookmark via Firebase Function.
  * Falls back to basic favicon if the function fails.
+ * Returns the metadata if successful.
  */
-export async function fetchMetadata(bookmarkId: Id, url: string): Promise<void> {
+export async function fetchMetadata(bookmarkId: Id, url: string): Promise<BookmarkMetadata | null> {
   try {
     const response = await fetch(
       `${METADATA_FUNCTION_URL}?url=${encodeURIComponent(url)}`,
@@ -17,7 +18,7 @@ export async function fetchMetadata(bookmarkId: Id, url: string): Promise<void> 
 
     if (!response.ok) {
       await saveFallbackMetadata(bookmarkId, getFaviconUrl(url));
-      return;
+      return null;
     }
 
     const data = await response.json();
@@ -32,6 +33,7 @@ export async function fetchMetadata(bookmarkId: Id, url: string): Promise<void> 
     };
 
     await db.saveMetadata(metadata);
+    return metadata;
   } catch {
     // Function unavailable or error - save fallback silently
     try {
@@ -39,6 +41,7 @@ export async function fetchMetadata(bookmarkId: Id, url: string): Promise<void> 
     } catch {
       // Ignore
     }
+    return null;
   }
 }
 
@@ -67,9 +70,15 @@ function getFaviconUrl(pageUrl: string): string {
 /**
  * Queue metadata fetching for a bookmark.
  * Runs in the background, non-blocking.
+ * Optional callback is invoked with the metadata when ready.
  */
-export function queueMetadataFetch(bookmarkId: Id, url: string): void {
-  setTimeout(() => {
-    fetchMetadata(bookmarkId, url);
+export function queueMetadataFetch(
+  bookmarkId: Id,
+  url: string,
+  onComplete?: (metadata: BookmarkMetadata | null) => void
+): void {
+  setTimeout(async () => {
+    const metadata = await fetchMetadata(bookmarkId, url);
+    onComplete?.(metadata);
   }, 0);
 }

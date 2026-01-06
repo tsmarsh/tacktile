@@ -1,6 +1,7 @@
 import type { Board, Bookmark } from './types';
 import * as db from './db';
 import { navigate } from './router';
+import { exportBoard, exportToFile, importFromFile } from './share';
 
 /**
  * Get the app container element.
@@ -31,13 +32,22 @@ export async function renderBoardList(): Promise<void> {
   const header = document.createElement('header');
   header.innerHTML = `
     <h1>TackTile</h1>
-    <button id="new-board-btn">+ New Board</button>
+    <div>
+      <button id="import-btn">Import</button>
+      <button id="new-board-btn">+ New Board</button>
+    </div>
   `;
   header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid #eee;';
   app.appendChild(header);
 
+  const btnStyle = 'padding: 0.5rem 1rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 0.5rem;';
+
+  const importBtn = document.getElementById('import-btn')!;
+  importBtn.style.cssText = btnStyle.replace('#0066cc', '#28a745');
+  importBtn.addEventListener('click', showImportDialog);
+
   const newBoardBtn = document.getElementById('new-board-btn')!;
-  newBoardBtn.style.cssText = 'padding: 0.5rem 1rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer;';
+  newBoardBtn.style.cssText = btnStyle;
   newBoardBtn.addEventListener('click', showNewBoardDialog);
 
   const container = document.createElement('main');
@@ -83,6 +93,24 @@ function showNewBoardDialog(): void {
   }
 }
 
+function showImportDialog(): void {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (file) {
+      try {
+        const boardId = await importFromFile(file);
+        navigate(`/board/${boardId}`);
+      } catch (e) {
+        alert('Failed to import: ' + (e instanceof Error ? e.message : 'Unknown error'));
+      }
+    }
+  });
+  input.click();
+}
+
 // =============================================================================
 // Board Detail View
 // =============================================================================
@@ -105,13 +133,22 @@ export async function renderBoardDetail(boardId: string): Promise<void> {
       <a href="#/" id="back-link" style="text-decoration: none; color: #0066cc;">← Boards</a>
       <h1 style="margin-top: 0.5rem;">${escapeHtml(board.name)}</h1>
     </div>
-    <button id="add-bookmark-btn">+ Add Bookmark</button>
+    <div>
+      <button id="share-btn">Share</button>
+      <button id="add-bookmark-btn">+ Add Bookmark</button>
+    </div>
   `;
   header.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; padding: 1rem; border-bottom: 1px solid #eee;';
   app.appendChild(header);
 
+  const btnStyle = 'padding: 0.5rem 1rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 0.5rem;';
+
+  const shareBtn = document.getElementById('share-btn')!;
+  shareBtn.style.cssText = btnStyle.replace('#0066cc', '#28a745');
+  shareBtn.addEventListener('click', () => showShareDialog(boardId));
+
   const addBtn = document.getElementById('add-bookmark-btn')!;
-  addBtn.style.cssText = 'padding: 0.5rem 1rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer;';
+  addBtn.style.cssText = btnStyle;
   addBtn.addEventListener('click', () => showAddBookmarkDialog(boardId));
 
   const container = document.createElement('main');
@@ -190,6 +227,29 @@ function showAddBookmarkDialog(boardId: string): void {
     } catch {
       alert('Invalid URL');
     }
+  }
+}
+
+async function showShareDialog(boardId: string): Promise<void> {
+  try {
+    const result = await exportBoard(boardId);
+
+    if ('error' in result) {
+      // Board is too large for URL sharing
+      const downloadFile = confirm(
+        'This board is too large to share via URL. Would you like to download it as a file instead?'
+      );
+      if (downloadFile) {
+        await exportToFile(boardId);
+      }
+      return;
+    }
+
+    // Copy URL to clipboard
+    await navigator.clipboard.writeText(result.url);
+    alert('Share link copied to clipboard!');
+  } catch (e) {
+    alert('Failed to share: ' + (e instanceof Error ? e.message : 'Unknown error'));
   }
 }
 

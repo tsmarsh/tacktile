@@ -2,124 +2,162 @@
 
 TackTile is a **local-first bookmarking app** inspired by Pinterest, designed to make collecting and sharing links fast, visual, and cheap to run.
 
-There is **no backend you control**.
-There is **no account system**.
-There is **no server-side scraping**.
-
-Everything lives in the browser.
+**Live demo**: https://tacktyl.web.app
 
 ---
 
-## What TackTile Is
+## Features
 
-* A way to collect URLs into **boards**
-* A visual, tile-based UI (thumbnails when possible)
-* **Share boards via links** using compressed URL payloads
-* Offline-first by default
-
-## What TackTile Is *Not*
-
-* A social network
-* A hosted service with accounts
-* A guaranteed preview generator
-* A place to store infinite data in a URL
+- **Boards** - Organize bookmarks into collections
+- **Visual tiles** - Rich previews with images, titles, and favicons
+- **Share via link** - Export boards as compressed URL payloads
+- **Import/Export** - JSON file backup for large boards
+- **Offline-first** - Everything works without internet
+- **No account required** - All data lives in your browser
 
 ---
 
-## Core Design Principles
+## Quick Start
 
-### 1. Local-First
+### Use it now
 
-All boards and bookmarks are stored locally in your browser using **IndexedDB**.
+Visit https://tacktyl.web.app - no setup required.
 
-If the app loads offline, everything still works.
+### Run locally
 
-### 2. Minimal Canonical Data
+```bash
+npm install
+npm run build
+npx serve dist
+```
 
-Only data that cannot be re-derived is treated as canonical:
+Open http://localhost:3000
 
-* URL
-* Board membership
-* Added timestamp
-* Optional user notes / tags
+### Development
 
-Everything else (titles, previews, thumbnails) is **derived and disposable**.
-
-### 3. URLs Are Transport, Not Storage
-
-TackTile uses URLs **only** to:
-
-* Navigate between boards
-* Share a board as a **one-time import link**
-
-When you open a shared link:
-
-1. The board payload is decoded and imported into local storage
-2. A local board ID is created
-3. The URL is immediately replaced with a short `/board/<id>` route
-
-The long payload never lives in browser history.
-
-### 4. Sharing Without a Backend
-
-Boards are shared by encoding their canonical data into the URL:
-
-* JSON → compressed → base64url
-* Embedded in a `/#/import/<payload>` link
-
-This enables **true link-based sharing** with zero infrastructure.
-
-Because browsers have URL length limits (especially on mobile), sharing has an intentional size ceiling.
-
-When a board exceeds that limit, TackTile falls back to:
-
-* Export board to file (JSON)
-* Import board from file
-
-Still no backend required.
-
-### 5. Best-Effort Previews
-
-TackTile attempts to enrich bookmarks with:
-
-* Page titles
-* Favicons
-* OpenGraph images (when allowed by CORS)
-
-Failures are expected and non-fatal.
-
-If a preview cannot be fetched, the bookmark still works.
+```bash
+npm run dev      # Build + watch
+npm run typecheck # Type-check without emitting
+```
 
 ---
 
-## Architecture Overview
+## Architecture
 
-* **Frontend**: Vanilla JS + TypeScript
-* **Storage**: IndexedDB (canonical data + cached previews)
-* **Routing**: Client-side (one page per board)
-* **Hosting**: Static (GitHub Pages, Cloudflare Pages, etc.)
+### Frontend
 
-There is no server component.
+- **Vanilla TypeScript** - No framework dependencies
+- **IndexedDB** - Local storage for boards, bookmarks, and cached metadata
+- **Hash router** - Client-side navigation (`/#/board/:id`)
+- **Single HTML output** - All JS inlined into `dist/index.html`
+
+### Backend (Optional)
+
+- **Firebase Hosting** - Static site hosting
+- **Firebase Function** - Metadata proxy to bypass CORS
+
+The metadata function fetches page titles, images, and favicons server-side since browsers block cross-origin requests. If the function is unavailable, bookmarks still work - they just show the hostname instead of rich previews.
+
+### Image Extraction
+
+The metadata function checks multiple sources for the best preview image:
+
+1. `og:image` (Open Graph)
+2. `twitter:image` (Twitter Cards)
+3. `link[rel=image_src]` (older convention)
+4. Schema.org image data
+5. Large content images (≥200px)
+
+Icons, logos, and tracking pixels are filtered out.
 
 ---
 
-## Project Status
+## Data Model
 
-This project is intentionally opinionated and minimalist.
+### Canonical (persisted)
 
-It optimizes for:
+Only user-authored data is stored permanently:
 
-* zero operational cost
-* long-term maintainability
-* user ownership of data
+- URL
+- Board membership
+- Added timestamp
+- User notes/tags
 
-If you need:
+### Derived (cached, disposable)
 
-* global discovery
-* guaranteed previews
-* unlimited shared boards
+Everything else can be regenerated:
 
-…you probably need infrastructure, and this project explicitly avoids that.
+- Page titles
+- Favicons
+- Preview images
+- Site names
+
+---
+
+## Sharing
+
+Boards are shared by encoding canonical data into the URL:
+
+```
+/#/import/<base64url-compressed-json>
+```
+
+When opened:
+1. Payload is decoded and decompressed
+2. Board is imported to IndexedDB
+3. URL is replaced with `/board/:id` (no history pollution)
+
+For boards exceeding URL size limits (~8KB), export to JSON file instead.
+
+---
+
+## Deployment
+
+### Firebase (recommended)
+
+```bash
+npm run build
+firebase deploy
+```
+
+### GitHub Pages
+
+Push to `main` - GitHub Actions handles deployment.
+
+### Any static host
+
+Upload `dist/index.html` to any static hosting service.
+
+---
+
+## Project Structure
+
+```
+src/
+├── main.ts        # App entry, router setup
+├── router.ts      # Hash-based client router
+├── views.ts       # UI rendering
+├── db.ts          # IndexedDB operations
+├── types.ts       # TypeScript interfaces
+├── metadata.ts    # Metadata fetching client
+└── share.ts       # Import/export logic
+
+functions/
+└── index.js       # Firebase Function (metadata proxy)
+```
+
+---
+
+## Configuration
+
+### Firebase
+
+Project config is in `firebase.json` and `.firebaserc`.
+
+To use your own Firebase project:
+1. Create a project at https://console.firebase.google.com
+2. Update `.firebaserc` with your project ID
+3. Update `METADATA_FUNCTION_URL` in `src/metadata.ts`
 
 ---
 
@@ -127,14 +165,12 @@ If you need:
 
 TackTile treats the browser as a **personal tool**, not a thin client for a service.
 
-If you can calculate it again, it does not belong in the URL.
-If the user did not explicitly author it, it is not canonical.
-
-Everything else is cache.
+- If you can calculate it again, don't store it in the URL
+- If the user didn't author it, it's not canonical
+- Everything else is cache
 
 ---
 
 ## License
 
 MIT
-

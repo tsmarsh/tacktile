@@ -4,30 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TackTile is a local-first bookmarking app inspired by Pinterest. It runs entirely in the browser with no backend, no accounts, and no server-side processing. All data lives in the browser using IndexedDB.
+TackTile is a local-first bookmarking app inspired by Pinterest. Data lives in the browser using IndexedDB. A Firebase Function provides metadata fetching to bypass CORS.
 
-## Architecture Constraints
+**Live**: https://tacktyl.web.app
 
-These are non-negotiable boundaries defined in `adr/adr.md`:
+## Architecture
 
-### Data Model
-- **Canonical data** (must be persisted): URL, board membership, added timestamp, user notes/tags
-- **Derived data** (local cache only, disposable): page titles, favicons, OpenGraph images, thumbnails
+### Frontend (src/)
+- `main.ts` - App entry, router setup
+- `router.ts` - Hash-based client router
+- `views.ts` - UI rendering (boards, bookmarks, tiles)
+- `db.ts` - IndexedDB operations (CRUD for boards, bookmarks, metadata)
+- `types.ts` - TypeScript interfaces
+- `metadata.ts` - Client for Firebase metadata function
+- `share.ts` - Import/export (URL encoding, file I/O)
 
-### Storage
-- IndexedDB for all canonical data and cached blobs
-- localStorage only for lightweight UI state
-- URLs are for navigation and one-time import payloads, never long-term storage
+### Backend (functions/)
+- `index.js` - Firebase Function that fetches page metadata server-side
 
-### CORS Policy
-- CORS is a hard constraint, not a problem to solve
-- Metadata fetching is best-effort only
-- Failures are silent and non-blocking
-
-### Share Links
-- Format: `/#/import/<payload>` where payload is JSON → deflate-raw → base64url
-- On import: decode, persist to IndexedDB, replace URL with `/board/<id>`
-- Hard size ceiling enforced client-side; fallback to file export for large boards
+### Key Files
+- `firebase.json` - Firebase hosting + functions config
+- `.firebaserc` - Firebase project ID (tacktyl)
+- `scripts/build.js` - esbuild bundler, outputs single HTML file
 
 ## Build Commands
 
@@ -37,23 +35,53 @@ npm run dev        # Build and watch for changes
 npm run typecheck  # Type-check without emitting
 ```
 
-Output is a single `dist/index.html` file with all JS inlined.
+## Deploy Commands
 
-## Tech Stack
+```bash
+firebase deploy              # Deploy hosting + functions
+firebase deploy --only hosting   # Deploy just the static site
+firebase deploy --only functions # Deploy just the metadata function
+```
 
-- Vanilla JS + TypeScript
-- esbuild for bundling
-- IndexedDB for storage
-- Client-side routing
-- Static hosting (GitHub Pages, Cloudflare Pages)
+GitHub Actions auto-deploys to Firebase on push to main.
+
+## Architecture Constraints
+
+From `adr/adr.md` (non-negotiable):
+
+### Data Model
+- **Canonical data** (persisted): URL, board membership, timestamp, user notes/tags
+- **Derived data** (cached, disposable): titles, favicons, images
+
+### Storage
+- IndexedDB for canonical data and cached metadata
+- URLs for navigation and one-time import payloads only
+
+### Metadata Fetching
+- Firebase Function bypasses CORS to fetch page metadata
+- Function URL: `https://us-central1-tacktyl.cloudfunctions.net/fetchMetadata`
+- Failures are silent - bookmarks work without metadata
+- Tiles update live when metadata arrives (no page refresh needed)
+
+### Image Extraction Priority
+1. og:image
+2. twitter:image
+3. link[rel=image_src]
+4. Schema.org image
+5. Large content images (≥200px)
+
+### Share Links
+- Format: `/#/import/<payload>` (JSON → deflate-raw → base64url)
+- On import: decode, persist, replace URL with `/board/<id>`
+- ~8KB size limit; fallback to JSON file export
 
 ## Design Principles
 
 1. **Local-first**: Everything works offline
 2. **Minimal canonical data**: Only store what can't be re-derived
-3. **URLs are transport, not storage**: Import payloads are consumed immediately and removed from history
-4. **Best-effort previews**: Missing thumbnails/metadata are expected and non-fatal
-5. **No blocking on network**: Bookmark creation is instant; enrichment happens in background
+3. **URLs are transport, not storage**: Import payloads consumed immediately
+4. **Best-effort previews**: Missing metadata is expected and non-fatal
+5. **No blocking on network**: Bookmark creation instant; enrichment in background
 
 
 ---

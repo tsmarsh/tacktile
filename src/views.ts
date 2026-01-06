@@ -68,20 +68,53 @@ export async function renderBoardList(): Promise<void> {
 
 function createBoardCard(board: Board): HTMLElement {
   const card = document.createElement('div');
-  card.style.cssText = 'border: 1px solid #ddd; border-radius: 8px; padding: 1rem; cursor: pointer; transition: box-shadow 0.2s;';
-  card.innerHTML = `
+  card.style.cssText = 'border: 1px solid #ddd; border-radius: 8px; padding: 1rem; cursor: pointer; transition: box-shadow 0.2s; position: relative;';
+
+  const content = document.createElement('div');
+  content.innerHTML = `
     <h3 style="margin-bottom: 0.5rem;">${escapeHtml(board.name)}</h3>
     <p style="color: #666; font-size: 0.875rem;">Created ${formatDate(board.createdAt)}</p>
   `;
+  content.addEventListener('click', () => {
+    navigate(`/board/${board.id}`);
+  });
+  card.appendChild(content);
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'margin-top: 0.5rem; display: flex; gap: 0.5rem;';
+
+  const editBtn = document.createElement('button');
+  editBtn.textContent = 'Edit';
+  editBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;';
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const newName = prompt('Enter new board name:', board.name);
+    if (newName && newName.trim() && newName.trim() !== board.name) {
+      db.updateBoard({ ...board, name: newName.trim() }).then(() => renderBoardList());
+    }
+  });
+  actions.appendChild(editBtn);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;';
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (confirm(`Delete board "${board.name}" and all its bookmarks?`)) {
+      db.deleteBoard(board.id).then(() => renderBoardList());
+    }
+  });
+  actions.appendChild(deleteBtn);
+
+  card.appendChild(actions);
+
   card.addEventListener('mouseenter', () => {
     card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
   });
   card.addEventListener('mouseleave', () => {
     card.style.boxShadow = 'none';
   });
-  card.addEventListener('click', () => {
-    navigate(`/board/${board.id}`);
-  });
+
   return card;
 }
 
@@ -238,9 +271,21 @@ function createBookmarkTile(bookmark: Bookmark, boardId: string, metadata?: Book
   meta.style.cssText = 'margin-top: 0.5rem; font-size: 0.75rem; color: #999;';
   content.appendChild(meta);
 
+  const actions = document.createElement('div');
+  actions.style.cssText = 'margin-top: 0.5rem; display: flex; gap: 0.5rem;';
+
+  const editBtn = document.createElement('button');
+  editBtn.textContent = 'Edit';
+  editBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;';
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showEditBookmarkDialog(bookmark, boardId);
+  });
+  actions.appendChild(editBtn);
+
   const deleteBtn = document.createElement('button');
   deleteBtn.textContent = 'Delete';
-  deleteBtn.style.cssText = 'margin-top: 0.5rem; padding: 0.25rem 0.5rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;';
+  deleteBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;';
   deleteBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (confirm('Delete this bookmark?')) {
@@ -248,10 +293,46 @@ function createBookmarkTile(bookmark: Bookmark, boardId: string, metadata?: Book
       renderBoardDetail(boardId);
     }
   });
-  content.appendChild(deleteBtn);
+  actions.appendChild(deleteBtn);
+
+  content.appendChild(actions);
 
   tile.appendChild(content);
   return tile;
+}
+
+function showEditBookmarkDialog(bookmark: Bookmark, boardId: string): void {
+  const newUrl = prompt('Edit URL:', bookmark.url);
+  if (newUrl === null) return; // Cancelled
+
+  if (newUrl.trim()) {
+    try {
+      new URL(newUrl.trim()); // Validate
+    } catch {
+      alert('Invalid URL');
+      return;
+    }
+  }
+
+  const newNotes = prompt('Edit notes:', bookmark.notes || '');
+  if (newNotes === null) return; // Cancelled
+
+  const updatedBookmark: Bookmark = {
+    ...bookmark,
+    url: newUrl.trim() || bookmark.url,
+    notes: newNotes.trim() || undefined,
+  };
+
+  // If URL changed, clear metadata so it gets re-fetched
+  const urlChanged = updatedBookmark.url !== bookmark.url;
+
+  db.updateBookmark(updatedBookmark).then(async () => {
+    if (urlChanged) {
+      await db.deleteMetadata(bookmark.id);
+      queueMetadataFetch(bookmark.id, updatedBookmark.url);
+    }
+    renderBoardDetail(boardId);
+  });
 }
 
 function showAddBookmarkDialog(boardId: string): void {
